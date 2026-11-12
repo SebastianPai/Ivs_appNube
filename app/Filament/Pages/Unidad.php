@@ -23,6 +23,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ToggleButtons;
+use Filament\Forms\Components\ViewField;
 use Filament\Forms\Get;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -33,6 +34,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Url;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Throwable;
@@ -506,9 +508,10 @@ class Unidad extends Page
     {
         return Action::make('mover')
             ->label('Mover a…')
-            ->modalWidth(MaxWidth::Large)
-            ->modalSubmitActionLabel('Mover')
-            ->form([$this->campoDestino('destino', 'Carpeta de destino', true)])
+            ->modalHeading(fn (array $arguments) => 'Mover '.$this->descripcionElementos($arguments['claves'] ?? $this->seleccion))
+            ->modalWidth(MaxWidth::TwoExtraLarge)
+            ->modalSubmitActionLabel('Mover aquí')
+            ->form(fn (array $arguments) => [$this->exploradorDestino('destino', $arguments['claves'] ?? $this->seleccion, true)])
             ->action(fn (array $data, array $arguments) => $this->moverClaves($arguments['claves'] ?? $this->seleccion, $data['destino']));
     }
 
@@ -516,9 +519,10 @@ class Unidad extends Page
     {
         return Action::make('copiar')
             ->label('Copiar a…')
-            ->modalWidth(MaxWidth::Large)
-            ->modalSubmitActionLabel('Copiar')
-            ->form([$this->campoDestino('destino', 'Carpeta de destino', false)])
+            ->modalHeading(fn (array $arguments) => 'Copiar '.$this->descripcionElementos($arguments['claves'] ?? $this->seleccion))
+            ->modalWidth(MaxWidth::TwoExtraLarge)
+            ->modalSubmitActionLabel('Copiar aquí')
+            ->form(fn (array $arguments) => [$this->exploradorDestino('destino', $arguments['claves'] ?? $this->seleccion, false)])
             ->action(function (array $data, array $arguments) {
                 $destino = $this->carpetaDestino($data['destino']);
                 $copiados = 0;
@@ -1234,6 +1238,95 @@ class Unidad extends Page
         if ($movidos) {
             Notification::make()->success()->title($movidos === 1 ? 'Elemento movido' : "$movidos elementos movidos")->send();
         }
+    }
+
+    /** Explorador de carpetas (como «Mover a» de Google Drive) para elegir el destino. */
+    private function exploradorDestino(string $nombre, array $claves, bool $permitirRaiz): ViewField
+    {
+        $actual = $this->carpeta();
+
+        return ViewField::make($nombre)
+            ->hiddenLabel()
+            ->required()
+            ->validationMessages(['required' => 'Elige la carpeta de destino.'])
+            ->view('filament.pages.unidad-destino')
+            ->viewData([
+                'inicio' => [
+                    'unidad' => $actual?->unidad ?? ($this->seccion === 'privada' ? Carpeta::UNIDAD_PRIVADA : Carpeta::UNIDAD_COMPARTIDA),
+                    'padre' => $actual?->id,
+                ],
+                'excluir' => array_values($claves),
+                'permitirRaiz' => $permitirRaiz && $this->esAdmin(),
+                'verbo' => $permitirRaiz ? 'mover' : 'copiar',
+                'conPrivada' => $this->esAdmin() || $this->idsRaiz(Carpeta::UNIDAD_PRIVADA) !== [],
+            ]);
+    }
+
+    private function descripcionElementos(array $claves): string
+    {
+        $n = count($claves);
+        if ($n !== 1) {
+            return "$n elementos";
+        }
+        $item = $this->resolverVisible($claves[0]);
+
+        return $item ? '«'.$item->nombre.'»' : '1 elemento';
+    }
+
+    /**
+     * Datos del explorador de destino: subcarpetas de $padreId (o raíces de la unidad), o resultados de búsqueda.
+     * Solo devuelve carpetas visibles para el usuario; elegir una sin permiso de edición no está permitido.
+     */
+    #[Renderless]
+    public function explorarDestinos(?int $padreId = null, string $unidad = 'compartida', string $busqueda = '', array $excluir = []): array
+    {
+        $user = $this->user();
+        $unidad = $unidad === Carpeta::UNIDAD_PRIVADA ? Carpeta::UNIDAD_PRIVADA : Carpeta::UNIDAD_COMPARTIDA;
+        $bloqueadas = collect($excluir)->filter(fn ($c) => is_string($c) && str_starts_with($c, 'c:'))
+            ->map(fn ($c) => (int) substr($c, 2))->filter()->values()->all();
+        $estaBloqueada = fn (Carpeta $c) => collect($bloqueadas)->contains(fn ($id) => in_array($id, $c->idsRuta(), true));
+
+        $padre = $padreId ? Carpeta::visiblePara($user)->find($padreId) : null;
+        $busqueda = trim($busqueda);
+
+        if ($busqueda !== '') {
+            $carpetas = Carpeta::visiblePara($user)->where('nombre', 'like', $this->like($busqueda))
+                ->orderBy('nombre')->limit(40)->get();
+        } elseif ($padre) {
+            $unidad = $padre->unidad;
+            $carpetas = Carpeta::visiblePara($user)->where('carpeta_padre_id', $padre->id)->orderBy('nombre')->get();
+        } else {
+            $carpetas = Carpeta::visiblePara($user)->whereIn('id', $this->idsRaiz($unidad) ?: [0])->orderBy('nombre')->get();
+        }
+
+        $conHijas = $carpetas->isEmpty() ? collect() : Carpeta::visiblePara($user)
+            ->whereIn('carpeta_padre_id', $carpetas->pluck('id'))->distinct()->pluck('carpeta_padre_id')->flip();
+
+        $idsNombres = $carpetas->flatMap->idsRuta()->merge($padre?->idsRuta() ?? [])->unique()->values()->all();
+        $nombresRuta = Carpeta::whereIn('id', $idsNombres ?: [0])->pluck('nombre', 'id');
+
+        $icono = fn (Carpeta $c) => svg(Carpeta::iconoDe($c->icono), 'ivsdd-icono')->toHtml();
+
+        return [
+            'unidad' => $unidad,
+            'actual' => $padre && ! $estaBloqueada($padre) ? [
+                'id' => $padre->id,
+                'nombre' => $padre->nombre,
+                'editable' => $this->editableEn($padre->id),
+            ] : null,
+            'migas' => $padre ? collect($padre->idsRuta())->map(fn ($id) => ['id' => $id, 'nombre' => $nombresRuta[$id] ?? '…'])->values()->all() : [],
+            'carpetas' => $carpetas->map(fn (Carpeta $c) => [
+                'id' => $c->id,
+                'nombre' => $c->nombre,
+                'color' => Carpeta::colorDe($c->color),
+                'icono' => $icono($c),
+                'hijas' => $conHijas->has($c->id),
+                'editable' => $this->editableEn($c->id),
+                'bloqueada' => $estaBloqueada($c),
+                'privada' => $c->unidad === Carpeta::UNIDAD_PRIVADA,
+                'ubicacion' => $busqueda !== '' ? collect($c->idsRuta())->slice(0, -1)->map(fn ($id) => $nombresRuta[$id] ?? '…')->implode(' › ') : null,
+            ])->all(),
+        ];
     }
 
     private function campoDestino(string $nombre, string $etiqueta, bool $permitirRaiz): Select

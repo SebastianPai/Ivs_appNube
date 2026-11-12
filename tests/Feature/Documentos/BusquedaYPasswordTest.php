@@ -82,6 +82,51 @@ class BusquedaYPasswordTest extends TestCase
         $this->assertNull(ArchivoTexto::find($archivo->id));
     }
 
+    public function test_explorador_de_destino_navega_busca_y_respeta_permisos(): void
+    {
+        $clientes = $this->crearCarpeta(null, 'Clientes');
+        $eds = $this->crearCarpeta($clientes, 'EDS La Molienda');
+        $this->crearCarpeta($eds, 'Fotos');
+        $privada = $this->crearCarpeta(null, 'Gerencia', Carpeta::UNIDAD_PRIVADA);
+
+        $this->actingAs($this->admin);
+        $pagina = Livewire::test(Unidad::class)->instance();
+
+        // Raíz de la unidad compartida: Clientes, con subcarpetas
+        $raiz = $pagina->explorarDestinos(null, 'compartida');
+        $this->assertSame(['Clientes'], array_column($raiz['carpetas'], 'nombre'));
+        $this->assertTrue($raiz['carpetas'][0]['hijas']);
+
+        // Dentro de Clientes, moviendo la propia «EDS La Molienda»: aparece bloqueada
+        $dentro = $pagina->explorarDestinos($clientes->id, 'compartida', '', ['c:'.$eds->id]);
+        $this->assertSame('Clientes', $dentro['actual']['nombre']);
+        $this->assertTrue($dentro['carpetas'][0]['bloqueada']);
+
+        // Búsqueda con la ubicación
+        $busqueda = $pagina->explorarDestinos(null, 'compartida', 'Fotos');
+        $this->assertSame('Clientes › EDS La Molienda', $busqueda['carpetas'][0]['ubicacion']);
+
+        // Un usuario sin acceso a la unidad privada no la ve
+        $this->actingAs($this->usuario);
+        $otra = Livewire::test(Unidad::class)->instance();
+        $this->assertSame([], $otra->explorarDestinos(null, 'privada')['carpetas']);
+        $this->assertNull($otra->explorarDestinos($privada->id, 'privada')['actual']);
+    }
+
+    public function test_mover_con_el_explorador(): void
+    {
+        $origen = $this->crearCarpeta(null, 'Origen');
+        $destino = $this->crearCarpeta(null, 'Destino');
+        $archivo = $this->subirPdf($origen, 'Acta.pdf');
+
+        $this->actingAs($this->admin);
+        Livewire::test(Unidad::class)
+            ->callAction('mover', ['destino' => 'c:'.$destino->id], ['claves' => ['a:'.$archivo->id]])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame($destino->id, $archivo->fresh()->carpeta_id);
+    }
+
     public function test_la_pantalla_de_ingreso_propia_permite_entrar(): void
     {
         $this->usuario->forceFill(['password' => 'ClaveSegura2026'])->save();
