@@ -49,10 +49,16 @@ jobs:
         run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-progress --no-scripts
 
       - name: Preparar SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          # Limpia lo que se cuela al pegar la llave desde Windows: retornos de carro (\r) y espacios al inicio o final de línea
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | sed '/^$/d' > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
+          # Diagnóstico sin revelar nada secreto: formato de la llave y su huella pública
+          head -1 ~/.ssh/id_deploy | grep -q 'BEGIN .*PRIVATE KEY' || echo "::error::El secreto SSH_PRIVATE_KEY no empieza con '-----BEGIN ... PRIVATE KEY-----' (¿se pegó la llave pública o un .ppk?)"
+          ssh-keygen -l -f ~/.ssh/id_deploy || { echo "::error::La llave del secreto SSH_PRIVATE_KEY no es válida"; exit 1; }
           # Llaves del servidor fijadas (evita conectarse a un servidor suplantado)
           cat >> ~/.ssh/known_hosts <<'EOF'
           s822.use1.mysecurecloudhost.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINGdZGGzIP/VAYiBojaPjM58fmvhY/8tVYtTdN0ZKtGj
