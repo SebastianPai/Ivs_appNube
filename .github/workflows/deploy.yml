@@ -1,0 +1,134 @@
+# Despliegue a cPanel (nube.ivscertificaciones.com). Mismo esquema que Ivs_appCerti.
+#
+# Cada push a main: GitHub instala las dependencias de producción y copia por SSH solo lo que cambió:
+#   - la aplicación a /home/wwwivsce/ivs_administracion (fuera de la carpeta pública)
+#   - public/ a /home/wwwivsce/nube.ivscertificaciones.com (carpeta del subdominio)
+# Después corre las migraciones y regenera las cachés. En el servidor no queda ningún servicio corriendo.
+#
+# Nunca se tocan en el servidor: .env, storage/ (credenciales de Firebase, logs, temporales),
+# y en la carpeta pública el .htaccess (lleva la redirección a https y las directivas de cPanel),
+# .user.ini, php.ini, .well-known y cgi-bin. El index.php público sale de deploy/cpanel/public_html.
+#
+# Secreto requerido en GitHub (Settings > Secrets and variables > Actions):
+#   SSH_PRIVATE_KEY  llave privada autorizada en cPanel > SSH Access (puede ser la misma de Ivs_appCerti)
+
+name: Desplegar a cPanel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: despliegue-produccion-nube
+  cancel-in-progress: false
+
+env:
+  SSH_HOST: s822.use1.mysecurecloudhost.com
+  SSH_PORT: 22
+  SSH_USER: wwwivsce
+  APP_DIR: /home/wwwivsce/ivs_administracion
+  PUBLIC_DIR: /home/wwwivsce/nube.ivscertificaciones.com
+
+jobs:
+  desplegar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, intl, gd, zip, bcmath, pdo_mysql, fileinfo
+          tools: composer:v2
+          coverage: none
+
+      - name: Dependencias PHP de producción
+        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-progress --no-scripts
+
+      - name: Preparar SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Llaves del servidor fijadas (evita conectarse a un servidor suplantado)
+          cat >> ~/.ssh/known_hosts <<'EOF'
+          s822.use1.mysecurecloudhost.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINGdZGGzIP/VAYiBojaPjM58fmvhY/8tVYtTdN0ZKtGj
+          s822.use1.mysecurecloudhost.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCYM6YbI/wmYF5y9ZM1U5FmGvm1oepVhPN//xKW0MqziuBYnSrKH7tmmuUK77vfxQqfjnUOaDkEe8EXM+rwzWL0=
+          EOF
+          sed -i 's/^ *//' ~/.ssh/known_hosts
+
+      - name: Modo mantenimiento
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTO'
+          set -e
+          cd /home/wwwivsce/ivs_administracion
+          PHP=$(for p in /opt/cpanel/ea-php83/root/usr/bin/php /opt/cpanel/ea-php82/root/usr/bin/php /usr/local/bin/php php; do
+                  command -v "$p" >/dev/null 2>&1 && "$p" -r 'exit(PHP_VERSION_ID >= 80200 ? 0 : 1);' 2>/dev/null && { echo "$p"; break; }
+                done)
+          [ -n "$PHP" ] || { echo "No hay PHP 8.2+ en el servidor"; exit 1; }
+          echo "$PHP" > storage/framework/php_bin
+          "$PHP" -v | head -1
+          "$PHP" artisan down --retry=30 || true
+          REMOTO
+
+      - name: Copiar la aplicación
+        run: |
+          rsync -rlz --delete --checksum \
+            -e "ssh -i ~/.ssh/id_deploy -p $SSH_PORT" \
+            --exclude='/.git/' \
+            --exclude='/.github/' \
+            --exclude='/node_modules/' \
+            --exclude='/tests/' \
+            --exclude='/deploy/dist/' \
+            --exclude='/.env' \
+            --exclude='/.env.*' \
+            --exclude='/storage/' \
+            --exclude='/bootstrap/cache/*.php' \
+            --exclude='/public/storage' \
+            --exclude='/public/hot' \
+            --exclude='error_log' \
+            --exclude='/.phpunit.result.cache' \
+            --exclude='/phpunit.xml' \
+            ./ "$SSH_USER@$SSH_HOST:$APP_DIR/"
+
+      - name: Copiar la carpeta pública del subdominio
+        run: |
+          # Sin --delete: en la carpeta pública también viven archivos de cPanel
+          rsync -rlz --checksum \
+            -e "ssh -i ~/.ssh/id_deploy -p $SSH_PORT" \
+            --exclude='/index.php' \
+            --exclude='/.htaccess' \
+            --exclude='/.user.ini' \
+            --exclude='/php.ini' \
+            --exclude='/.well-known/' \
+            --exclude='/cgi-bin/' \
+            --exclude='/storage' \
+            --exclude='/hot' \
+            --exclude='error_log' \
+            public/ "$SSH_USER@$SSH_HOST:$PUBLIC_DIR/"
+          rsync -z --checksum -e "ssh -i ~/.ssh/id_deploy -p $SSH_PORT" \
+            deploy/cpanel/public_html/index.php "$SSH_USER@$SSH_HOST:$PUBLIC_DIR/index.php"
+
+      - name: Migrar y regenerar cachés
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTO'
+          set -e
+          cd /home/wwwivsce/ivs_administracion
+          PHP=$(cat storage/framework/php_bin)
+          "$PHP" artisan package:discover --ansi
+          "$PHP" artisan migrate --force
+          "$PHP" artisan optimize:clear
+          "$PHP" artisan optimize
+          "$PHP" artisan filament:optimize
+          "$PHP" artisan queue:restart || true
+          "$PHP" artisan up
+          REMOTO
+
+      - name: Salir de mantenimiento si algo falló
+        if: failure()
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            'cd /home/wwwivsce/ivs_administracion && $(cat storage/framework/php_bin 2>/dev/null || echo php) artisan up' || true
