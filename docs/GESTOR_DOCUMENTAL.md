@@ -20,7 +20,11 @@ La base de datos guarda la estructura lógica (carpetas, archivos, versiones, pe
 - **Carpeta abierta** (unidad compartida, sin restricción): la ven todos los usuarios con `drive.acceder`. Pueden editarla quienes tienen `documentos.editar_compartido` o un permiso «editar» explícito.
 - **Carpeta restringida**: solo la ven los usuarios o roles con permiso en ella o en un ancestro **dentro de la misma zona**. Una subcarpeta restringida corta la herencia. Las raíces de la unidad privada siempre son restringidas.
 - **Eliminar** (papelera, restaurar, eliminación definitiva) y **gestionar permisos**: solo el rol `Admin`, verificado por rol en el servidor.
-- Roles iniciales (`RolesYPermisosSeeder`, idempotente): `Admin`, `Gerencia`, `Usuario`.
+- **Unidad privada completa** (permiso `unidad_privada.acceder`): ve las carpetas privadas y lo que heredan de sus raíces, con su mismo nivel de la compartida. Las subcarpetas privadas restringidas a propósito siguen siendo excepciones.
+- Roles iniciales (`RolesYPermisosSeeder`, idempotente), con su descripción visible en Usuarios y Roles:
+  - `Usuario`: solo la unidad compartida; consulta y descarga.
+  - `Gerencia`: compartida y privada; sube, organiza y crea carpetas.
+  - `Admin`: todo, incluidos papelera, usuarios y permisos.
 
 ## Conectar Firebase Storage
 

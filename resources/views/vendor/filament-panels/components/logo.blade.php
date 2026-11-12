@@ -1,2 +1,2 @@
-<img src="{{ asset('images/ivs_img.png') }}"
-alt="" class="h-16">
+{{-- Logo del panel: el mismo de app.ivscertificaciones.com (logo + «IVS Certificaciones») con la etiqueta «Nube». --}}
+@include('filament.marca')

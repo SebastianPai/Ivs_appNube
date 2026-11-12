@@ -45,7 +45,13 @@ class UserResource extends Resource
                     ->helperText(fn (string $operation) => $operation === 'edit'
                         ? 'Déjala vacía para conservar la actual.'
                         : 'Contraseña inicial. Se le pedirá cambiarla en su primer ingreso.'),
-                Select::make('roles')->label('Roles')->multiple()->preload()->relationship('roles','name'),
+                Forms\Components\CheckboxList::make('roles')
+                    ->label('¿Qué puede hacer esta persona?')
+                    ->relationship('roles', 'name')
+                    ->descriptions(fn () => \App\Models\Role::pluck('descripcion', 'id')->map(fn ($d) => $d ?? '')->all())
+                    ->helperText('Marca al menos un rol. Usuario = solo la unidad compartida · Gerencia = compartida y privada · Admin = todo, incluidos usuarios y papelera.')
+                    ->required()
+                    ->columnSpanFull(),
             ]);
     }
 

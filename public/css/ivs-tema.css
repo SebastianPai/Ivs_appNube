@@ -141,7 +141,7 @@
 .dark .ivs-marca__texto { color: #f3eceb; }
 .dark .ivs-marca__texto b { color: #d79a9d; }
 .dark .ivs-marca__app { background: rgb(201 131 134 / .16); color: #e6b7b9; }
-@media (max-width: 1023px) { .ivs-marca__texto { display: none; } }
+@media (max-width: 639px) { .ivs-marca__texto { display: none; } }
 
 /* ============ Barra superior y menús ============ */
 .fi-topbar > nav {

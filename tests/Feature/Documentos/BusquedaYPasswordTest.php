@@ -127,6 +127,47 @@ class BusquedaYPasswordTest extends TestCase
         $this->assertSame($destino->id, $archivo->fresh()->carpeta_id);
     }
 
+    public function test_gerencia_ve_las_dos_unidades_y_usuario_solo_la_compartida(): void
+    {
+        $privada = $this->crearCarpeta(null, 'Contabilidad', Carpeta::UNIDAD_PRIVADA);
+        $subcarpeta = $this->crearCarpeta($privada, 'Nómina 2026', Carpeta::UNIDAD_PRIVADA);
+        $this->crearCarpeta(null, 'Clientes');
+        $archivo = $this->subirPdf($subcarpeta, 'Balance.pdf');
+        $acceso = app(\App\Services\Documentos\AccesoDocumental::class);
+
+        // Gerencia: entra a la privada completa y puede trabajar ahí
+        $this->assertTrue($acceso->puedeVerCarpeta($this->gerencia, $subcarpeta));
+        $this->assertTrue($acceso->puedeEditarEn($this->gerencia, $subcarpeta));
+        $this->assertTrue($acceso->puedeDescargar($this->gerencia, $archivo));
+        $this->assertSame(['Clientes', 'Contabilidad', 'Nómina 2026'], Carpeta::visiblePara($this->gerencia)->orderBy('nombre')->pluck('nombre')->all());
+
+        $this->actingAs($this->gerencia);
+        $this->assertContains('privada', Livewire::test(Unidad::class)->instance()->seccionesDisponibles());
+
+        // Usuario: solo la compartida
+        $this->assertFalse($acceso->puedeVerCarpeta($this->usuario, $subcarpeta));
+        $this->assertFalse($acceso->puedeVerArchivo($this->usuario, $archivo));
+        $this->assertSame(['Clientes'], Carpeta::visiblePara($this->usuario)->pluck('nombre')->all());
+
+        $this->actingAs($this->usuario);
+        $this->assertNotContains('privada', Livewire::test(Unidad::class)->instance()->seccionesDisponibles());
+    }
+
+    public function test_los_formularios_de_usuarios_y_roles_explican_cada_rol(): void
+    {
+        $this->actingAs($this->admin);
+
+        $this->get(\App\Filament\Resources\UserResource::getUrl('create'))
+            ->assertOk()
+            ->assertSee('Ve la unidad compartida y la unidad privada', false)
+            ->assertSee('Solo ve la unidad compartida', false);
+
+        $this->get(\App\Filament\Resources\RoleResource::getUrl('edit', ['record' => \App\Models\Role::where('name', 'Gerencia')->first()]))
+            ->assertOk()
+            ->assertSee('Acceder a toda la unidad privada')
+            ->assertSee('Sin él, solo ve la unidad compartida', false);
+    }
+
     public function test_la_pantalla_de_ingreso_propia_permite_entrar(): void
     {
         $this->usuario->forceFill(['password' => 'ClaveSegura2026'])->save();
@@ -147,7 +188,7 @@ class BusquedaYPasswordTest extends TestCase
         $this->actingAs($this->admin);
         Livewire::test(CreateUser::class)
             ->assertFormSet(['password' => 'Ivscerti2026'])
-            ->fillForm(['name' => 'Nuevo', 'email' => 'nuevo@ivs.test'])
+            ->fillForm(['name' => 'Nuevo', 'email' => 'nuevo@ivs.test', 'roles' => [\App\Models\Role::where('name', 'Usuario')->value('id')]])
             ->call('create')
             ->assertHasNoFormErrors();
 

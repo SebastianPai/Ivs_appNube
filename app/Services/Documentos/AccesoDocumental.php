@@ -17,6 +17,9 @@ use Illuminate\Support\Facades\DB;
  *   puede editarla quien tenga documentos.editar_compartido o un permiso "editar" explícito.
  * - Carpeta restringida: solo la ven quienes tengan un permiso en ella o en un ancestro dentro de la misma
  *   zona de restricción. Una subcarpeta restringida corta la herencia (excepción explícita).
+ * - Unidad privada completa: quien tenga unidad_privada.acceder (rol Gerencia) ve las carpetas privadas, con el mismo
+ *   nivel que tiene en la compartida (ver, o editar si además tiene documentos.editar_compartido). Las subcarpetas
+ *   restringidas a propósito dentro de la privada siguen siendo excepciones y solo las ven quienes tengan permiso en ellas.
  * - Solo los administradores envían a la papelera, restauran, eliminan y gestionan permisos.
  */
 class AccesoDocumental
@@ -24,6 +27,8 @@ class AccesoDocumental
     public const NIVEL_VER = 'ver';
     public const NIVEL_EDITAR = 'editar';
     public const NIVEL_ADMIN = 'admin';
+
+    public const PERMISO_UNIDAD_PRIVADA = 'unidad_privada.acceder';
 
     private const PESOS = [self::NIVEL_VER => 1, self::NIVEL_EDITAR => 2, self::NIVEL_ADMIN => 3];
 
@@ -50,7 +55,7 @@ class AccesoDocumental
 
         $nivel = null;
 
-        if ($carpeta->restriccion_id === null) {
+        if ($carpeta->restriccion_id === null || $this->accedeUnidadPrivada($user, $carpeta)) {
             $nivel = $user->can('documentos.editar_compartido') ? self::NIVEL_EDITAR : self::NIVEL_VER;
         }
 
@@ -59,6 +64,24 @@ class AccesoDocumental
         }
 
         return $nivel;
+    }
+
+    /**
+     * El rol entra a la unidad privada: a sus raíces y a todo lo que hereda de ellas.
+     * Una subcarpeta restringida a propósito (su zona no empieza en una raíz) queda fuera.
+     */
+    public function accedeUnidadPrivada(User $user, ?Carpeta $carpeta = null): bool
+    {
+        if (! $user->can(self::PERMISO_UNIDAD_PRIVADA)) {
+            return false;
+        }
+        if ($carpeta === null) {
+            return true;
+        }
+
+        return $carpeta->unidad === Carpeta::UNIDAD_PRIVADA
+            && $carpeta->restriccion_id !== null
+            && Carpeta::whereKey($carpeta->restriccion_id)->whereNull('carpeta_padre_id')->exists();
     }
 
     public function puedeVerCarpeta(User $user, Carpeta $carpeta): bool
@@ -161,9 +184,14 @@ class AccesoDocumental
 
         $tabla = $query->getModel()->getTable();
         $roles = $this->idsRoles($user);
+        $privadaCompleta = $this->accedeUnidadPrivada($user);
 
-        return $query->where(function (Builder $q) use ($tabla, $user, $roles) {
+        return $query->where(function (Builder $q) use ($tabla, $user, $roles, $privadaCompleta) {
             $q->whereNull("$tabla.restriccion_id")
+                ->when($privadaCompleta, fn ($w) => $w->orWhere(fn ($p) => $p
+                    ->where("$tabla.unidad", Carpeta::UNIDAD_PRIVADA)
+                    ->whereIn("$tabla.restriccion_id", Carpeta::query()->withTrashed()->select('id')
+                        ->where('unidad', Carpeta::UNIDAD_PRIVADA)->whereNull('carpeta_padre_id'))))
                 ->orWhereExists(function ($sub) use ($tabla, $user, $roles) {
                     $sub->selectRaw('1')
                         ->from('carpeta_permisos as cp')

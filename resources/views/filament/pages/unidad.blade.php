@@ -19,6 +19,14 @@
             ['papelera', 'Papelera', 'heroicon-o-trash'],
         ];
         $disponibles = $this->seccionesDisponibles();
+        // Ayuda al pasar el mouse, para quien no conoce la aplicación
+        $ayudas = [
+            'compartida' => 'Documentos de trabajo que ve todo el equipo.',
+            'privada' => 'Documentos internos de la empresa. Solo la ven Admin, Gerencia y quien tenga permiso.',
+            'recientes' => 'Lo último que se subió o modificó.',
+            'pendientes' => 'Archivos recuperados que esperan revisión.',
+            'papelera' => 'Lo eliminado. Se puede restaurar.',
+        ];
         $carpetaActualId = $this->carpetaId;
         $busquedaActiva = trim($this->busqueda) !== '';
     @endphp
@@ -44,6 +52,7 @@
                     @continue(! in_array($clave, $disponibles, true))
                     <button type="button" wire:click="irA('{{ $clave }}')" x-on:click="lateralAbierta = false"
                         class="ivsd-seccion {{ $this->seccion === $clave && ! $busquedaActiva ? 'activa' : '' }}"
+                        title="{{ $ayudas[$clave] ?? '' }}"
                         @if ($this->seccion === $clave && ! $busquedaActiva) aria-current="page" @endif>
                         <x-filament::icon :icon="$icono" class="ivsd-i" />
                         <span>{{ $etiqueta }}</span>
