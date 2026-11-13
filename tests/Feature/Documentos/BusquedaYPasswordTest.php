@@ -168,6 +168,16 @@ class BusquedaYPasswordTest extends TestCase
             ->assertSee('Sin él, solo ve la unidad compartida', false);
     }
 
+    public function test_las_respuestas_llevan_cabeceras_de_seguridad(): void
+    {
+        $this->get('/inicio/login')
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('X-Frame-Options', 'SAMEORIGIN')
+            ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+        $this->actingAs($this->admin)->get(Unidad::getUrl())->assertHeader('X-Frame-Options', 'SAMEORIGIN');
+    }
+
     public function test_la_pantalla_de_ingreso_propia_permite_entrar(): void
     {
         $this->usuario->forceFill(['password' => 'ClaveSegura2026'])->save();

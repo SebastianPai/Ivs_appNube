@@ -13,6 +13,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         // No hay ruta "login" propia: el acceso es el de Filament
         $middleware->redirectGuestsTo(fn () => route('filament.inicio.auth.login'));
+        $middleware->web(append: [\App\Http\Middleware\CabecerasSeguridad::class]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

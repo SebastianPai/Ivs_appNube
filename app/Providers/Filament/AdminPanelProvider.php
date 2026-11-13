@@ -91,6 +91,8 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+                // El panel no pasa por el grupo «web»: las cabeceras de seguridad se agregan aquí también
+                \App\Http\Middleware\CabecerasSeguridad::class,
             ])
             //->plugin(FilamentSpatieRolesPermissionsPlugin::make())
             ->authMiddleware([

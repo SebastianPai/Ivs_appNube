@@ -318,3 +318,9 @@ html.dark .ivsd { --ivsd-fondo: #241d1f; --ivsd-fondo-2: #1b1617; --ivsd-sel: rg
 .dark .ivsdd-destino { background: rgb(201 131 134 / .1); color: #d8cdcf; }
 .dark .ivsdd-destino.vacio { background: rgb(255 255 255 / .04); }
 @media (max-width: 639px) { .ivsdd-lista { height: 55vh; } }
+
+/* ============ Menú de acciones compartido del Drive (partials/menu-compartido) ============ */
+.ivsd-menu { position: fixed; z-index: 50; width: 14rem; }
+.ivsd-menu-btn { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 9999px; color: #a99ea0; transition: background-color .15s, color .15s; }
+.ivsd-menu-btn:hover, .ivsd-menu-btn:focus-visible { background: #f8eeec; color: #8b3c42; outline: none; }
+.dark .ivsd-menu-btn:hover, .dark .ivsd-menu-btn:focus-visible { background: rgb(255 255 255 / .06); color: #e6b7b9; }

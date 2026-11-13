@@ -6,8 +6,8 @@
 # Después corre las migraciones y regenera las cachés. En el servidor no queda ningún servicio corriendo.
 #
 # Nunca se tocan en el servidor: .env, storage/ (credenciales de Firebase, logs, temporales),
-# y en la carpeta pública el .htaccess (lleva la redirección a https y las directivas de cPanel),
-# .user.ini, php.ini, .well-known y cgi-bin. El index.php público sale de deploy/cpanel/public_html.
+# y en la carpeta pública .user.ini, php.ini, .well-known y cgi-bin. El index.php y el .htaccess públicos salen de deploy/cpanel/public_html
+# (se editan en el repo, no en el servidor).
 #
 # Secreto requerido en GitHub (Settings > Secrets and variables > Actions):
 #   SSH_PRIVATE_KEY  llave privada autorizada en cPanel > SSH Access (puede ser la misma de Ivs_appCerti)
@@ -115,8 +115,9 @@ jobs:
             --exclude='/hot' \
             --exclude='error_log' \
             public/ "$SSH_USER@$SSH_HOST:$PUBLIC_DIR/"
+          # index.php (apunta a la app fuera de la carpeta pública) y .htaccess (https, caché, compresión, bloqueos)
           rsync -z --checksum -e "ssh -i ~/.ssh/id_deploy -p $SSH_PORT" \
-            deploy/cpanel/public_html/index.php "$SSH_USER@$SSH_HOST:$PUBLIC_DIR/index.php"
+            deploy/cpanel/public_html/index.php deploy/cpanel/public_html/.htaccess "$SSH_USER@$SSH_HOST:$PUBLIC_DIR/"
 
       - name: Migrar y regenerar cachés
         run: |

@@ -1,6 +1,8 @@
 <x-filament-panels::page>
     @php
         $hayDetalle = $detalleItem !== null;
+        // Ícono «⋮» calculado una vez (antes se renderizaba un componente por fila)
+        $iconoMenu = svg('heroicon-m-ellipsis-vertical', 'ivsd-i')->toHtml();
         $totalElementos = $listado['carpetas']->count() + $listado['archivos']->count();
         $seleccionados = count($this->seleccion);
         $iconoTipo = [
@@ -40,6 +42,8 @@
     >
         {{-- Fondo para cerrar el menú en móvil tocando fuera --}}
         <div class="ivsd-fondo-lateral" x-show="lateralAbierta" x-cloak x-transition.opacity x-on:click="lateralAbierta = false" aria-hidden="true"></div>
+
+        @include('filament.pages.partials.menu-compartido')
 
         {{-- Barra lateral --}}
         <aside class="ivsd-lateral" :class="{ 'abierta': lateralAbierta }" aria-label="Navegación de documentos">
@@ -442,6 +446,28 @@
             progreso: 0,
             archivosSubiendo: 0,
             visorUrl: null,
+            // Menú de acciones compartido por todas las filas
+            menu: null,
+            menuPos: { top: 0, left: 0 },
+            abrirMenu(evento, datos) {
+                if (this.menu && this.menu.clave === datos.clave) { this.cerrarMenu(); return; }
+                const r = evento.currentTarget.getBoundingClientRect();
+                const ancho = 224;
+                this.menu = datos;
+                this.menuPos = { top: r.bottom + 4, left: Math.max(8, Math.min(r.right - ancho, window.innerWidth - ancho - 8)) };
+                this.$nextTick(() => {
+                    const alto = this.$refs.menuPanel?.offsetHeight ?? 0;
+                    if (r.bottom + 4 + alto > window.innerHeight - 8) {
+                        this.menuPos = { ...this.menuPos, top: Math.max(8, r.top - alto - 4) };
+                    }
+                });
+            },
+            cerrarMenu() { this.menu = null; },
+            menuAccion(nombre, varias = false) {
+                const clave = this.menu?.clave;
+                this.cerrarMenu();
+                if (clave) $wire.mountAction(nombre, varias ? { claves: [clave] } : { clave });
+            },
             visorOculto: false,
             temporizadorClic: null,
 

@@ -796,6 +796,23 @@ class Unidad extends Page
         };
     }
 
+    /**
+     * Archivos cuyo texto (PDF) contiene la búsqueda. En MySQL usa el índice FULLTEXT: cada palabra de 3 o más letras
+     * debe aparecer (como prefijo). Sin palabras útiles, o en SQLite, cae a LIKE.
+     */
+    private function idsPorContenido(string $buscar): Builder
+    {
+        $consulta = ArchivoTexto::query()->select('archivo_id');
+        $palabras = collect(preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($buscar), -1, PREG_SPLIT_NO_EMPTY))
+            ->filter(fn ($p) => mb_strlen($p) >= 3)->unique()->take(8);
+
+        if ($palabras->isNotEmpty() && in_array($consulta->getConnection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return $consulta->whereFullText('texto', $palabras->map(fn ($p) => '+'.$p.'*')->implode(' '), ['mode' => 'boolean']);
+        }
+
+        return $consulta->where('texto', 'like', $this->like($buscar));
+    }
+
     private function listado(): array
     {
         $user = $this->user();
@@ -822,7 +839,7 @@ class Unidad extends Page
                 ->where('archivos.nombre', 'like', $like)
                 ->orWhere('archivos.identificador_documental', 'like', $like)
                 ->orWhere('archivos.extension', mb_strtolower(ltrim($buscar, '.')))
-                ->orWhereIn('archivos.id', ArchivoTexto::select('archivo_id')->where('texto', 'like', $like)));
+                ->orWhereIn('archivos.id', $this->idsPorContenido($buscar)));
         } elseif ($this->seccion === 'recientes') {
             $titulo = 'Recientes';
             $archivosQ = Archivos::visiblePara($user)->whereNotNull('archivos.carpeta_id');
